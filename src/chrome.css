@@ -1988,3 +1988,45 @@ body.layout-gate-active iframe#artifact {
 .whiteboard-error[hidden] {
   display: none;
 }
+/* Phone review with a finger: every control the reviewer taps gets at least a 44px target, and
+   text fields stay at 17px so iOS Safari does not zoom the page when one takes focus. A narrow
+   desktop window with a mouse keeps the compact sizes. */
+@media (max-width: 860px) and (pointer: coarse) {
+  :root {
+    --composer-reserve: calc(1px + var(--space-4) + 44px + var(--space-6) + env(safe-area-inset-bottom, 0px));
+  }
+  .annotate-switch {
+    min-height: 44px;
+  }
+  .more-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .panel-toggle {
+    width: 44px;
+    height: 44px;
+  }
+  .composer textarea,
+  .queued-edit-input {
+    font-size: 17px;
+  }
+  .chat-attach,
+  .composer .actions .button,
+  .queued-edit-actions button,
+  .handoff-takeover {
+    min-height: 44px;
+  }
+  .queued-edit,
+  .queued-remove {
+    position: relative;
+    width: 28px;
+    height: 28px;
+  }
+  /* The visible chip stays small; the touch target around it is 44px. */
+  .queued-edit::after,
+  .queued-remove::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
+}

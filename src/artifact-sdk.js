@@ -3,6 +3,15 @@
 import { readArtifactRevisions } from "./artifact-revisions.js";
 import * as mermaidHelpers from "./mermaid-node.js";
 import { tableCellTarget } from "./table-cell.js";
+import {
+  phoneBlockTarget,
+  phoneNoteHeading,
+  phoneRevealDelta,
+  phoneSectionFor,
+  phoneSectionTarget,
+  phoneSheetPlacement,
+  phoneTargetName,
+} from "./phone-review.js";
 
 export const LAVISH_INTERNAL_QUEUE_KEY = "_lavishQueueKey";
 
@@ -481,6 +490,13 @@ export function createArtifactSdk(
   let queuedAnchorSelectors = new Set();
   let shadow = null;
   let counter = 0;
+  // Phone review. The chrome reports which band of this frame is visible above the keyboard and
+  // the conversation dock; the open note sheet sits on that band's lower edge. The active card's
+  // hooks let a tap elsewhere keep its draft instead of replacing it.
+  let phoneViewport = { visibleTop: 0, visibleBottom: Infinity };
+  let activeCardLayout = null;
+  let activeCardHasDraft = null;
+  let activeCardNudge = null;
   const ids = new WeakMap();
 
   // Image attachments for the open annotation card. These are UX guides only - the
@@ -2228,13 +2244,39 @@ export function createArtifactSdk(
 
     shadow = host.attachShadow({ mode: "open" });
     const style = document.createElement("style");
-    style.textContent = `:host{all:initial;position:fixed;z-index:2147483647;left:0;top:0;color-scheme:dark;--ink-900:#0f1115;--ink-800:#11141a;--ink-700:#171a21;--ink-600:#1c212b;--steel-700:#2a2f3a;--steel-600:#303745;--steel-500:#3c4557;--steel-400:#8c96aa;--steel-300:#aeb6c6;--steel-200:#b9c0cf;--steel-100:#d8deea;--cream-50:#fffbf3;--cream-100:#f7f3ea;--cream-200:#e8e1cf;--brass-500:#f4c95d;--brass-400:#ffd877;--brass-ink:#17130a;--bg:var(--ink-900);--bg-panel:var(--ink-800);--bg-elevated:var(--ink-600);--fg:var(--cream-100);--fg-faint:var(--steel-300);--border:var(--steel-600);--accent:#f4c95d;--accent-hover:#ffd877;--font-sans:Geist,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;--font-mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--radius-md:10px;--radius-xl:14px;--shadow-floating:0 20px 70px rgba(0,0,0,.35);font-family:var(--font-sans)}*{box-sizing:border-box}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.lavish-text-highlight{position:fixed;pointer-events:none;background:rgba(244,201,93,.28);border-radius:2px;box-shadow:0 0 0 1px rgba(244,201,93,.45)}.lavish-annotation-card{position:fixed;width:min(320px,calc(100vw - 24px));padding:12px;border-radius:var(--radius-xl);background:var(--bg-panel);color:var(--fg);border:1px solid var(--accent);box-shadow:var(--shadow-floating);font:14px/1.4 var(--font-sans)}.lavish-heading{font-weight:700;margin-bottom:6px}.lavish-annotation-card textarea{width:100%;min-height:86px;resize:vertical;border-radius:var(--radius-md);border:1px solid var(--border);background:var(--bg);color:var(--fg);padding:9px;font:inherit;font-family:var(--font-sans)}.lavish-annotation-card textarea::placeholder{color:var(--fg-faint)}.lavish-annotation-card .lavish-hint{margin-top:6px;font-size:11px;color:var(--fg-faint)}.lavish-annotation-card .lavish-hint-alert{color:#ff9d7a;font-weight:700}.lavish-annotation-card .lavish-row{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}.lavish-annotation-card button{border:0;border-radius:var(--radius-md);padding:8px 10px;font-family:var(--font-sans);font-size:13px;font-weight:700;cursor:pointer}.lavish-annotation-card button:active{opacity:.85}.lavish-annotation-card .lavish-send{background:var(--accent);color:var(--brass-ink)}.lavish-annotation-card .lavish-send:hover{background:var(--accent-hover)}.lavish-annotation-card .lavish-cancel{background:var(--steel-700);color:var(--fg)}.lavish-annotation-card.is-dropping{outline:2px dashed var(--accent);outline-offset:3px}.lavish-attachments{display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:176px;overflow-y:auto}.lavish-attachment-chip{display:flex;align-items:center;gap:8px;padding:6px;border-radius:var(--radius-md);background:var(--bg);border:1px solid var(--border)}.lavish-attachment-chip.is-error{border-color:#e0623d}.lavish-attachment-thumb{width:32px;height:32px;border-radius:6px;object-fit:cover;background:var(--ink-700);flex:0 0 auto}.lavish-attachment-thumb-empty{display:inline-block}.lavish-attachment-body{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1 1 auto}.lavish-attachment-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lavish-attachment-status{font-size:11px;color:var(--fg-faint)}.lavish-attachment-status-error{color:#ff9d7a}.lavish-attachment-retry{flex:0 0 auto;padding:4px 8px;font-size:11px;font-weight:700;border-radius:8px;background:var(--steel-700);color:var(--fg);cursor:pointer;border:0}.lavish-attachment-remove{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0!important;border-radius:50%;background:transparent;color:rgba(255,255,255,.85);cursor:pointer;border:0}.lavish-attachment-remove:hover{background:rgba(255,255,255,.14);color:#fff}.lavish-attach-row{margin-top:8px}.lavish-attach{display:inline-flex;align-items:center;gap:6px;padding:6px 9px!important;background:var(--steel-700)!important;color:var(--fg)!important;font-size:12px!important}.lavish-attach:hover{background:var(--steel-600)!important}.lavish-reveal-marker{position:fixed;pointer-events:none;border:2px solid var(--accent);border-radius:4px;box-shadow:0 0 0 4px rgba(244,201,93,.22);animation:lavish-reveal-pulse 2.4s var(--ease,ease-out) forwards}@keyframes lavish-reveal-pulse{0%{opacity:0}12%{opacity:1}70%{opacity:1}100%{opacity:0}}`;
+    style.textContent = `:host{all:initial;position:fixed;z-index:2147483647;left:0;top:0;color-scheme:dark;--ink-900:#0f1115;--ink-800:#11141a;--ink-700:#171a21;--ink-600:#1c212b;--steel-700:#2a2f3a;--steel-600:#303745;--steel-500:#3c4557;--steel-400:#8c96aa;--steel-300:#aeb6c6;--steel-200:#b9c0cf;--steel-100:#d8deea;--cream-50:#fffbf3;--cream-100:#f7f3ea;--cream-200:#e8e1cf;--brass-500:#f4c95d;--brass-400:#ffd877;--brass-ink:#17130a;--bg:var(--ink-900);--bg-panel:var(--ink-800);--bg-elevated:var(--ink-600);--fg:var(--cream-100);--fg-faint:var(--steel-300);--border:var(--steel-600);--accent:#f4c95d;--accent-hover:#ffd877;--font-sans:Geist,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;--font-mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--radius-md:10px;--radius-xl:14px;--shadow-floating:0 20px 70px rgba(0,0,0,.35);font-family:var(--font-sans)}*{box-sizing:border-box}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.lavish-text-highlight{position:fixed;pointer-events:none;background:rgba(244,201,93,.28);border-radius:2px;box-shadow:0 0 0 1px rgba(244,201,93,.45)}.lavish-annotation-card{position:fixed;width:min(320px,calc(100vw - 24px));padding:12px;border-radius:var(--radius-xl);background:var(--bg-panel);color:var(--fg);border:1px solid var(--accent);box-shadow:var(--shadow-floating);font:14px/1.4 var(--font-sans)}.lavish-heading{font-weight:700;margin-bottom:6px}.lavish-annotation-card textarea{width:100%;min-height:86px;resize:vertical;border-radius:var(--radius-md);border:1px solid var(--border);background:var(--bg);color:var(--fg);padding:9px;font:inherit;font-family:var(--font-sans)}.lavish-annotation-card textarea::placeholder{color:var(--fg-faint)}.lavish-annotation-card .lavish-hint{margin-top:6px;font-size:11px;color:var(--fg-faint)}.lavish-annotation-card .lavish-hint-alert{color:#ff9d7a;font-weight:700}.lavish-annotation-card .lavish-row{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}.lavish-annotation-card button{border:0;border-radius:var(--radius-md);padding:8px 10px;font-family:var(--font-sans);font-size:13px;font-weight:700;cursor:pointer}.lavish-annotation-card button:active{opacity:.85}.lavish-annotation-card .lavish-send{background:var(--accent);color:var(--brass-ink)}.lavish-annotation-card .lavish-send:hover{background:var(--accent-hover)}.lavish-annotation-card .lavish-cancel{background:var(--steel-700);color:var(--fg)}.lavish-annotation-card.is-dropping{outline:2px dashed var(--accent);outline-offset:3px}.lavish-attachments{display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:176px;overflow-y:auto}.lavish-attachment-chip{display:flex;align-items:center;gap:8px;padding:6px;border-radius:var(--radius-md);background:var(--bg);border:1px solid var(--border)}.lavish-attachment-chip.is-error{border-color:#e0623d}.lavish-attachment-thumb{width:32px;height:32px;border-radius:6px;object-fit:cover;background:var(--ink-700);flex:0 0 auto}.lavish-attachment-thumb-empty{display:inline-block}.lavish-attachment-body{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1 1 auto}.lavish-attachment-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lavish-attachment-status{font-size:11px;color:var(--fg-faint)}.lavish-attachment-status-error{color:#ff9d7a}.lavish-attachment-retry{flex:0 0 auto;padding:4px 8px;font-size:11px;font-weight:700;border-radius:8px;background:var(--steel-700);color:var(--fg);cursor:pointer;border:0}.lavish-attachment-remove{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0!important;border-radius:50%;background:transparent;color:rgba(255,255,255,.85);cursor:pointer;border:0}.lavish-attachment-remove:hover{background:rgba(255,255,255,.14);color:#fff}.lavish-attach-row{margin-top:8px}.lavish-attach{display:inline-flex;align-items:center;gap:6px;padding:6px 9px!important;background:var(--steel-700)!important;color:var(--fg)!important;font-size:12px!important}.lavish-attach:hover{background:var(--steel-600)!important}.lavish-reveal-marker{position:fixed;pointer-events:none;border:2px solid var(--accent);border-radius:4px;box-shadow:0 0 0 4px rgba(244,201,93,.22);animation:lavish-reveal-pulse 2.4s var(--ease,ease-out) forwards}@keyframes lavish-reveal-pulse{0%{opacity:0}12%{opacity:1}70%{opacity:1}100%{opacity:0}}.lavish-annotation-card.lavish-phone-sheet{right:0;width:auto;padding:12px 14px 14px;border-width:1px 0 0;border-radius:16px 16px 0 0;font-size:16px;overflow-y:auto;overscroll-behavior:contain;box-shadow:0 -14px 40px rgba(0,0,0,.35)}.lavish-phone-sheet .lavish-heading{margin-bottom:2px;font-size:15px}.lavish-phone-sheet .lavish-excerpt{margin-bottom:8px;font-size:13px;color:var(--fg-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lavish-phone-sheet textarea{min-height:96px;resize:none;font-size:17px;line-height:1.4}.lavish-phone-sheet .lavish-hint:empty{display:none}.lavish-phone-sheet .lavish-tools{display:flex;flex-wrap:wrap;gap:8px}.lavish-phone-sheet .lavish-attach,.lavish-phone-sheet .lavish-scope{min-height:44px;padding:0 14px!important;font-size:14px!important}.lavish-scope{display:inline-flex;align-items:center;background:var(--steel-700);color:var(--fg)}.lavish-scope[aria-pressed=true]{background:var(--accent);color:var(--brass-ink)}.lavish-phone-sheet .lavish-row{gap:10px;margin-top:10px}.lavish-phone-sheet .lavish-row button{flex:1 1 0;min-height:48px;font-size:16px}.lavish-phone-sheet .lavish-cancel.is-confirming{background:#8a2c1c;color:#fff}.lavish-phone-sheet .lavish-attachment-remove{width:44px;height:44px}.lavish-phone-sheet .lavish-attachment-retry{min-height:44px;padding:0 12px}.lavish-phone-sheet.is-nudged{animation:lavish-nudge .45s ease-out}@keyframes lavish-nudge{0%,100%{transform:translateY(0)}30%{transform:translateY(-8px)}60%{transform:translateY(2px)}}`;
     shadow.appendChild(style);
     return shadow;
   }
 
+  // A finger on a phone-width frame. The chrome uses the same query for its phone-only behavior.
+  function isPhoneReview() {
+    return (
+      typeof window.matchMedia === "function" && window.matchMedia("(max-width: 860px) and (pointer: coarse)").matches
+    );
+  }
+
+  // On a phone a tap names the block it landed in. Mermaid nodes keep their own resolution.
+  function phoneTapTarget(el) {
+    if (!isPhoneReview() || !(el instanceof Element) || mermaidNodeElement(el)) return el;
+    return phoneBlockTarget(el, (node) => getComputedStyle(node).display);
+  }
+
+  function phoneDraftOpen() {
+    return Boolean(isPhoneReview() && activeCardHasDraft && activeCardHasDraft());
+  }
+
+  function revealPhoneAnchor(card, anchor, range) {
+    const rect = range ? range.getBoundingClientRect() : anchor?.getBoundingClientRect?.();
+    const delta = phoneRevealDelta(rect, Number(phoneViewport.visibleTop) || 0, card.getBoundingClientRect().top);
+    if (delta) window.scrollBy(0, delta);
+  }
+
   function closeCard() {
     activeCardContext = null;
+    activeCardLayout = null;
+    activeCardHasDraft = null;
+    activeCardNudge = null;
     if (activeAttachments) {
       activeAttachments.destroy();
       activeAttachments = null;
@@ -2255,8 +2297,9 @@ export function createArtifactSdk(
     const root = ensureShadow();
     closeCard();
 
-    const c = options.context || context(target, { table: true });
+    let c = options.context || context(target, { table: true });
     activeCardContext = c;
+    const phone = isPhoneReview();
     let anchor = target;
     if (options.range) {
       highlightTextRange(options.range);
@@ -2268,7 +2311,7 @@ export function createArtifactSdk(
 
     const rect = options.range ? options.range.getBoundingClientRect() : anchor.getBoundingClientRect();
     const card = document.createElement("div");
-    card.className = "lavish-annotation-card";
+    card.className = phone ? "lavish-annotation-card lavish-phone-sheet" : "lavish-annotation-card";
     const nodeLabel = c.tag === "mermaid-node" ? c.target?.label || c.text || "" : "";
     const isTableCell = c.target?.type === "table-cell";
     // The annotation targets the element that was clicked, which inside a table cell is often a
@@ -2287,8 +2330,11 @@ export function createArtifactSdk(
           : c.tag === "mermaid-node"
             ? "Annotate node" + (nodeLabel ? ": " + escapeAnnotationText(nodeLabel) : "")
             : "Annotate &lt;" + c.tag + "&gt;";
-    const placeholder =
-      c.tag === "text"
+    const phonePlaceholder = (/** @type {any} */ ctx) =>
+      "Tell the agent what to change about this " + phoneTargetName(ctx).replace(/^this /, "") + "...";
+    const placeholder = phone
+      ? phonePlaceholder(c)
+      : c.tag === "text"
         ? "Tell the agent what to change about this text..."
         : isCellItself
           ? "Tell the agent what to change about this table cell..."
@@ -2296,35 +2342,70 @@ export function createArtifactSdk(
             ? "Tell the agent what to change about this diagram node..."
             : "Tell the agent what to change about this element...";
     const sendNowHint = /Mac|iP(hone|ad|od)/.test(navigator.platform) ? "⌘" : "Ctrl";
+    // A phone note can widen from the tapped block to its whole section. Text ranges keep their range.
+    const section = phone && !options.range ? phoneSectionFor(anchor, document) : null;
     card.innerHTML =
       '<div class="lavish-heading">' +
       heading +
-      '</div><textarea placeholder="' +
+      "</div>" +
+      (phone ? '<div class="lavish-excerpt"></div>' : "") +
+      '<textarea placeholder="' +
       placeholder +
       '"></textarea><div class="lavish-attachments" data-attachments hidden></div>' +
-      '<div class="lavish-attach-row"><button class="lavish-attach" type="button">' +
+      '<div class="lavish-attach-row' +
+      (phone ? " lavish-tools" : "") +
+      '"><button class="lavish-attach" type="button">' +
       '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>' +
       "<span>Attach image</span></button>" +
       '<input class="lavish-attach-input" type="file" accept="' +
       ATTACHMENT_IMAGE_TYPES.accept +
-      '" multiple hidden></div>' +
-      '<div class="lavish-hint">Enter to queue &middot; ' +
-      sendNowHint +
-      "+Enter to send &middot; paste or drop an image" +
-      '</div><div class="lavish-row"><button class="lavish-cancel" type="button">Cancel</button><button class="lavish-send" type="button">Queue</button></div>';
+      '" multiple hidden>' +
+      (section ? '<button class="lavish-scope" type="button" aria-pressed="false">Whole section</button>' : "") +
+      "</div>" +
+      // A phone keyboard has no Enter shortcuts, so the phone sheet shows no hint until it has news.
+      '<div class="lavish-hint">' +
+      (phone ? "" : "Enter to queue &middot; " + sendNowHint + "+Enter to send &middot; paste or drop an image") +
+      '</div><div class="lavish-row"><button class="lavish-cancel" type="button">Cancel</button>' +
+      (phone
+        ? '<button class="lavish-send" type="button">Add note</button>'
+        : '<button class="lavish-send" type="button">Queue</button>') +
+      "</div>";
     root.appendChild(card);
+    const headingEl = card.querySelector(".lavish-heading");
+    const excerptEl = card.querySelector(".lavish-excerpt");
+    // The phone sheet names its target in plain words and quotes what it covers.
+    function renderPhoneHeading() {
+      if (!phone) return;
+      if (headingEl) headingEl.textContent = phoneNoteHeading(c);
+      const excerpt = String(c.text || "").slice(0, 120);
+      if (excerptEl) excerptEl.textContent = excerpt ? "\u201c" + excerpt + "\u201d" : "";
+    }
+    renderPhoneHeading();
 
     // Clamp the card fully inside the viewport. Called again whenever its height
     // changes (attachment chip rows are added/removed) so a grown card never pushes
     // its Queue/Cancel buttons off the bottom of the frame (W3). The anchor `rect` is
     // captured once; only the card's own measured size varies between calls.
     function positionCard() {
+      if (phone) {
+        // The phone sheet spans the frame and rests on the lowest visible edge the chrome reported.
+        const placement = phoneSheetPlacement(window.innerHeight, phoneViewport);
+        card.style.left = "0px";
+        card.style.top = "auto";
+        card.style.bottom = placement.bottom + "px";
+        card.style.maxHeight = placement.maxHeight + "px";
+        return;
+      }
       const left = Math.min(Math.max(12, rect.left), window.innerWidth - card.offsetWidth - 12);
       const top = Math.min(Math.max(12, rect.bottom + 8), window.innerHeight - card.offsetHeight - 12);
       card.style.left = left + "px";
       card.style.top = top + "px";
     }
     positionCard();
+    if (phone) {
+      revealPhoneAnchor(card, anchor, options.range);
+      postArtifactMessage("lavish:requestPhoneViewport");
+    }
 
     const textarea = /** @type {HTMLTextAreaElement | null} */ (card.querySelector("textarea"));
     const cancelButton = /** @type {HTMLButtonElement | null} */ (card.querySelector(".lavish-cancel"));
@@ -2353,6 +2434,49 @@ export function createArtifactSdk(
     };
     const attachments = makeAttachmentsController(attachmentsList, { notify, onLayout: positionCard });
     activeAttachments = attachments;
+    const hasCardDraft = () =>
+      Boolean(textarea.value.trim()) || attachments.hasPending() || attachments.hasErrors() || attachments.hasReady();
+    if (phone) {
+      activeCardHasDraft = hasCardDraft;
+      // A tap on the page while a phone note has words keeps the note: it drops the keyboard so the
+      // reviewer can look around, and says where the note went instead of replacing it.
+      activeCardNudge = () => {
+        textarea.blur();
+        card.classList.remove("is-nudged");
+        void card.offsetWidth;
+        card.classList.add("is-nudged");
+        notify("Your note is still here. Add it, or tap Cancel twice to discard it.");
+      };
+      activeCardLayout = (shrunk) => {
+        positionCard();
+        if (shrunk) revealPhoneAnchor(card, selected || anchor, options.range);
+      };
+    }
+    const scopeButton = /** @type {HTMLButtonElement | null} */ (card.querySelector(".lavish-scope"));
+    if (scopeButton && section) {
+      const blockContext = c;
+      const blockAnchor = anchor;
+      scopeButton.onclick = () => {
+        const wholeSection = scopeButton.getAttribute("aria-pressed") !== "true";
+        clearHighlight(selected);
+        if (wholeSection) {
+          const sectionContext = context(section.element);
+          c = { ...sectionContext, target: phoneSectionTarget(sectionContext.selector, section) };
+          selected = section.element;
+        } else {
+          c = blockContext;
+          selected = blockAnchor;
+        }
+        activeCardContext = c;
+        highlightElement(selected);
+        renderPhoneHeading();
+        scopeButton.setAttribute("aria-pressed", wholeSection ? "true" : "false");
+        scopeButton.textContent = wholeSection ? "Just this " + phoneTargetName(blockContext) : "Whole section";
+        const noteField = card.querySelector("textarea");
+        if (noteField) noteField.placeholder = phonePlaceholder(c);
+        scheduleReviewStateReport();
+      };
+    }
 
     attachButton.onclick = () => attachInput.click();
     attachInput.addEventListener("change", () => {
@@ -2418,12 +2542,31 @@ export function createArtifactSdk(
       return true;
     }
 
-    cancelButton.onclick = closeCard;
+    // On a phone, Cancel on a note with words asks once before throwing them away. The artifact
+    // frame has no allow-modals, so the confirmation is the button itself.
+    let discardArmed = 0;
+    cancelButton.onclick = () => {
+      if (phone && hasCardDraft()) {
+        if (!discardArmed) {
+          cancelButton.textContent = "Discard note?";
+          cancelButton.classList.add("is-confirming");
+          discardArmed = window.setTimeout(() => {
+            discardArmed = 0;
+            cancelButton.textContent = "Cancel";
+            cancelButton.classList.remove("is-confirming");
+          }, 4000);
+          return;
+        }
+        window.clearTimeout(discardArmed);
+      }
+      closeCard();
+    };
     sendButton.onclick = () => {
       tryQueue();
     };
     textarea.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      // A phone keyboard has no Shift+Return, so there Return breaks the line and Add note queues.
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !phone) {
         event.preventDefault();
         const sendNow = (event.ctrlKey || event.metaKey) && (!!textarea.value.trim() || attachments.hasReady());
         const queued = tryQueue();
@@ -2491,6 +2634,11 @@ export function createArtifactSdk(
     if (msg.type === "lavish:queuedAnchors") {
       queuedAnchorSelectors = new Set(Array.isArray(msg.selectors) ? msg.selectors.map(String) : []);
     }
+    if (msg.type === "lavish:phoneViewport") {
+      const previousBottom = Number(phoneViewport.visibleBottom);
+      phoneViewport = { visibleTop: Number(msg.visibleTop) || 0, visibleBottom: Number(msg.visibleBottom) || 0 };
+      if (activeCardLayout) activeCardLayout(phoneViewport.visibleBottom < previousBottom);
+    }
     if (msg.type === "lavish:annotateElement" && annotationMode) {
       const target = safeQuerySelector(msg.selector);
       if (target) showAnnotationCard(target);
@@ -2555,7 +2703,8 @@ export function createArtifactSdk(
         isInteractiveControl(event.target)
       )
         return;
-      const target = annotationTargetEl(event.target);
+      if (phoneDraftOpen()) return;
+      const target = annotationTargetEl(phoneTapTarget(event.target));
       if (target === selected) return;
       if (hovered && hovered !== selected) clearHighlight(hovered);
       hovered = target;
@@ -2588,6 +2737,7 @@ export function createArtifactSdk(
 
       const c = textSelectionContext(document.getSelection());
       if (!c) return;
+      if (phoneDraftOpen()) return;
 
       ignoreNextClick = true;
       showAnnotationCard(c.element, { context: c, range: c.range });
@@ -2619,9 +2769,15 @@ export function createArtifactSdk(
         ignoreNextClick = false;
         return;
       }
+      // A tap elsewhere while a phone note has words keeps that note rather than replacing it.
+      if (phoneDraftOpen()) {
+        activeCardNudge?.();
+        return;
+      }
+      const tapped = phoneTapTarget(event.target);
       // The clicked element's own selector, plus its diagram node's, so any click inside a node
       // finds the node's note again. A table cell's note stays on the exact element clicked.
-      const clicked = queuedAnchorSelectors.size ? context(event.target) : null;
+      const clicked = queuedAnchorSelectors.size ? context(tapped) : null;
       const node = clicked?.target?.type === "mermaid-node" ? clicked.target.selector : "";
       const selector = [clicked?.selector, node].find((candidate) => candidate && queuedAnchorSelectors.has(candidate));
       if (selector) {
@@ -2629,7 +2785,7 @@ export function createArtifactSdk(
         postArtifactMessage("lavish:editQueuedAnchor", { selector });
         return;
       }
-      showAnnotationCard(event.target);
+      showAnnotationCard(tapped);
     },
     true,
   );

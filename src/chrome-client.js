@@ -1284,10 +1284,15 @@ function scrollPanelToBottom() {
 // visual-viewport measurements, and the dock summary; CSS owns the geometry. The query must match
 // the one chrome.css lays the sheet out under.
 const MOBILE_SHEET_MEDIA = "(max-width: 860px)";
+// A finger on a phone-width screen. Return breaks lines here instead of sending, because a phone
+// keyboard has no Shift+Return, and the artifact's note sheet is placed from the band this
+// controller reports. The artifact SDK's isPhoneReview uses the same query.
+const PHONE_REVIEW_MEDIA = "(max-width: 860px) and (pointer: coarse)";
 // How far a drag on the dock must travel before it counts as a gesture rather than a tap.
 const SHEET_DRAG_THRESHOLD_PX = 48;
 const sheetStorageKey = "lavish-axi:sheet-open:" + key;
 const sheetMedia = typeof window.matchMedia === "function" ? window.matchMedia(MOBILE_SHEET_MEDIA) : null;
+const phoneReviewMedia = typeof window.matchMedia === "function" ? window.matchMedia(PHONE_REVIEW_MEDIA) : null;
 // The user's intent, kept across a chrome reload so a live-reload or server upgrade does not drop
 // them back onto a closed dock mid-conversation.
 let sheetOpen = readSheetOpen();
@@ -1308,6 +1313,32 @@ function readSheetOpen() {
 
 function isMobileSheet() {
   return Boolean(sheetMedia && sheetMedia.matches);
+}
+
+function isPhoneReview() {
+  return Boolean(phoneReviewMedia && phoneReviewMedia.matches);
+}
+
+// Tells the artifact which band of its frame the reviewer can see: below any part of the frame
+// panned out of the visual viewport, and above the keyboard and the docked conversation sheet.
+// The artifact's phone note sheet rests on that band's lower edge.
+function postFramePhoneViewport() {
+  if (!isPhoneReview() || !frame || typeof frame.getBoundingClientRect !== "function") return;
+  const rect = frame.getBoundingClientRect();
+  if (!(rect.height > 0)) return;
+  const viewport = window.visualViewport;
+  // Frame and dock rects are relative to the scroll position. WebKit scrolls the page under a
+  // fixed layout viewport when the keyboard opens, so offsetTop alone would double-count that
+  // scroll; pageTop minus scrollY is where the visible top sits in rect coordinates in both engines.
+  const viewTop = viewport ? (Number(viewport.pageTop) || 0) - (Number(window.scrollY) || 0) : 0;
+  let occludedFrom = viewTop + (viewport ? viewport.height : window.innerHeight);
+  if (!sheetOpen && panelHead && typeof panelHead.getBoundingClientRect === "function") {
+    const dock = panelHead.getBoundingClientRect();
+    if (dock.height > 0) occludedFrom = Math.min(occludedFrom, dock.top);
+  }
+  const visibleTop = Math.max(0, Math.round(viewTop - rect.top));
+  const visibleBottom = Math.max(visibleTop, Math.min(Math.round(rect.height), Math.round(occludedFrom - rect.top)));
+  postToFrame({ type: "lavish:phoneViewport", visibleTop, visibleBottom });
 }
 
 function setSheetOpen(open) {
@@ -1343,6 +1374,7 @@ function applySheetState() {
   panelToggle.setAttribute("aria-expanded", open ? "true" : "false");
   panelToggle.setAttribute("aria-label", open ? "Hide conversation" : "Show conversation");
   renderSheetSummary();
+  postFramePhoneViewport();
 }
 
 // What the closed dock says. One line, most actionable state first: work the user has queued,
@@ -1396,6 +1428,7 @@ function syncVisualViewport() {
   if (!(height > 0)) return;
   root.style.setProperty("--vv-height", Math.round(height) + "px");
   root.style.setProperty("--vv-top", Math.round(Math.max(0, top || 0)) + "px");
+  postFramePhoneViewport();
 }
 
 function sheetDragOffset(event) {
@@ -1468,6 +1501,10 @@ if (window.visualViewport && typeof window.visualViewport.addEventListener === "
   window.visualViewport.addEventListener("resize", syncVisualViewport);
   window.visualViewport.addEventListener("scroll", syncVisualViewport);
 }
+window.addEventListener("resize", postFramePhoneViewport);
+// iOS can scroll the whole review page to show a focused field above the keyboard without the
+// visual viewport moving, which shifts the artifact frame under the dock; re-measure on scroll too.
+window.addEventListener("scroll", postFramePhoneViewport, { passive: true });
 window.addEventListener("resize", syncVisualViewport);
 syncVisualViewport();
 
@@ -1592,8 +1629,9 @@ queuedLog.addEventListener("input", (event) => {
 queuedLog.addEventListener("keydown", (event) => {
   const target = /** @type {Element | null} */ (event.target);
   if (!target || typeof target.closest !== "function" || !target.closest(".queued-edit-input")) return;
-  // The annotation card's keys: Enter keeps the words, Shift+Enter breaks the line.
-  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+  // The annotation card's keys: Enter keeps the words, Shift+Enter breaks the line. A phone
+  // keyboard has no Shift+Return, so there Return breaks the line and Save keeps the words.
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !isPhoneReview()) {
     event.preventDefault();
     event.stopPropagation();
     saveQueuedEdit();
@@ -4245,6 +4283,7 @@ window.addEventListener("message", (event) => {
   if (msg.type === "lavish:revisions") applyRevisionMessage(msg);
   if (msg.type === "lavish:toggleAnnotationMode") toggleAnnotationMode();
   if (msg.type === "lavish:editQueuedAnchor") editQueuedAnchor(String(msg.selector || ""));
+  if (msg.type === "lavish:requestPhoneViewport") postFramePhoneViewport();
 });
 
 // The sandboxed artifact iframe can't reach the loopback server (opaque origin),
@@ -4480,7 +4519,8 @@ chatAttachments.addEventListener("click", (event) => {
   if (retry) chatAttachmentController.retry(String(retry.dataset.chatAttachmentRetry || ""));
 });
 chatInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+  // On a phone, Return breaks the line and only the Send button sends.
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !isPhoneReview()) {
     event.preventDefault();
     sendQueued(false);
   }

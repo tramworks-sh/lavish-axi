@@ -6950,8 +6950,10 @@ test("desktop chrome never turns the conversation panel into a sheet", async () 
 test("phone chrome boots with the conversation docked and raises it on tap", async () => {
   const chrome = await createChromeHarness({ mobile: true });
 
-  assert.equal(chrome.mediaQueries.length, 1);
+  // The sheet breakpoint, then the phone review query (a finger on a phone-width screen).
+  assert.equal(chrome.mediaQueries.length, 2);
   assert.match(chrome.mediaQueries[0].media, /max-width/);
+  assert.equal(chrome.mediaQueries[1].media, "(max-width: 860px) and (pointer: coarse)");
   const docked = sheetState(chrome);
   assert.equal(docked.open, false);
   // The hidden part of the sheet must be unreachable: a focus landing in the off-screen
@@ -8468,6 +8470,37 @@ test("saving an edited queued note rewrites it in place and keeps its identity",
   assert.equal(after[0].prompt_id, before.prompt_id);
   assert.equal(after[0].selector, "main > h2");
   assert.doesNotMatch(chrome.element("queuedLog").innerHTML, /queued-edit-input/);
+});
+
+test("phone review: Return in a queued-note edit breaks the line and Save keeps the words", async () => {
+  const chrome = await createChromeHarness({ mobile: true });
+  queueHeadingNote(chrome);
+
+  chrome.element("queuedLog").dispatch("click", { target: queuedLogNode(["queued-edit"], 0) });
+  typeIntoQueuedEdit(chrome, "First line");
+  const event = queuedLogKey(chrome, "Enter");
+
+  assert.equal(event.defaultPrevented, false);
+  assert.match(chrome.element("queuedLog").innerHTML, /queued-edit-input/);
+  assert.equal(chrome.queued()[0].prompt, "Make this heading bigger");
+});
+
+test("phone review: Return in the Conversation box breaks the line instead of sending", async () => {
+  const chrome = await createChromeHarness({ mobile: true });
+  chrome.element("chatInput").value = "First line";
+  const event = {
+    key: "Enter",
+    shiftKey: false,
+    isComposing: false,
+    defaultPrevented: false,
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+  };
+  chrome.element("chatInput").dispatch("keydown", event);
+
+  assert.equal(event.defaultPrevented, false);
+  assert.equal(chrome.element("chatInput").value, "First line");
 });
 
 test("cancelling an edit leaves the queued note untouched", async () => {
